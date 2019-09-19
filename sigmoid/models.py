@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import settings
 
-NUM_CLASSES = 1001
+NUM_CLASSES = 1000
 
 class RNNModel(nn.Module):
     def __init__(self, nlayers=3):
@@ -20,7 +20,6 @@ class RNNModel(nn.Module):
     
         self.fc = nn.Linear(out_hdim, NUM_CLASSES)
         self.gate_fc = nn.Linear(out_hdim, out_hdim)
-        self.dropout = nn.Dropout(p=0.4)
         self.name = 'RNNModel_'+str(nlayers)
 
     def forward(self, rgb, audio):
@@ -32,15 +31,11 @@ class RNNModel(nn.Module):
         _, haudio = self.gru_audio(audio)
     
         h = torch.transpose(torch.cat((hrgb, haudio), 2), 0, 1).contiguous().view(rgb.size()[0], -1)
-        #h = self.dropout(h)
-        #h = F.dropout(h, p=0.6, training=self.training)
-        #print('h:', h.size())
         gate = torch.sigmoid(self.gate_fc(h))
         h = gate * h
 
-        h = F.dropout(h, p=0.6, training=self.training)
+        h = F.dropout(h, p=0.4, training=self.training)
         
-
         return self.fc(h)
 
 def create_model(args):

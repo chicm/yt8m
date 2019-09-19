@@ -19,10 +19,13 @@ from torch.nn import DataParallel
 from utils import accuracy
 #from apex import amp
 from radam import RAdam
+from sklearn.metrics import fbeta_score
+from sklearn.exceptions import UndefinedMetricWarning
 
 MODEL_DIR = settings.MODEL_DIR
 
-c = nn.CrossEntropyLoss(reduction='none')
+#c = nn.CrossEntropyLoss(reduction='none')
+c = nn.BCEWithLogitsLoss(reduction='none')
 
 def _reduce_loss(loss):
     #print('loss shape:', loss.shape)
@@ -35,7 +38,7 @@ def train(args):
     print('start training...')
     model, model_file = create_model(args)
     train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size)
-    #train_loader = get_frame_train_loader(batch_size=args.batch_size)
+    train_loader = get_frame_train_loader(batch_size=args.batch_size)
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
     if args.optim == 'Adam':
@@ -46,7 +49,7 @@ def train(args):
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
 
     if args.lrs == 'plateau':
-        lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=args.factor, patience=args.patience, min_lr=args.min_lr)
+        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=args.factor, patience=args.patience, min_lr=args.min_lr)
     else:
         lr_scheduler = CosineAnnealingLR(optimizer, args.t_max, eta_min=args.min_lr)
 
@@ -58,15 +61,15 @@ def train(args):
 
     #model=model.train()
 
-    best_f2 = 0.
-    best_key = 'top1'
+    best_f2 = 99999.
+    best_key = 'loss'
 
-    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  top1   |  top10  |  best  | time |  save |')
+    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  0.01  |  0.20  |  0.50  |  best  | time |  save |')
 
     if not args.no_first_val:
         val_metrics = validate(args, model, val_loader)
-        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} |       |        |'.format(
-            val_metrics['valid_loss'], val_metrics['top1'], val_metrics['top10'], val_metrics[best_key] ))
+        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |       |        |'.format(
+            val_metrics['loss'], val_metrics['f2_th_0.01'], val_metrics['f2_th_0.20'], val_metrics['f2_th_0.50'], val_metrics[best_key] ))
 
         best_f2 = val_metrics[best_key]
 
@@ -121,15 +124,15 @@ def train(args):
                 val_metrics = validate(args, model, val_loader)
                 
                 _save_ckp = ''
-                if args.always_save or val_metrics[best_key] > best_f2:
+                if args.always_save or val_metrics[best_key] < best_f2:
                     best_f2 = val_metrics[best_key]
                     if isinstance(model, DataParallel):
                         torch.save(model.module.state_dict(), model_file)
                     else:
                         torch.save(model.state_dict(), model_file)
                     _save_ckp = '*'
-                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
-                    val_metrics['valid_loss'], val_metrics['top1'], val_metrics['top10'], best_f2,
+                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
+                    val_metrics['loss'], val_metrics['f2_th_0.01'], val_metrics['f2_th_0.20'], val_metrics['f2_th_0.50'], best_f2,
                     (time.time() - bg) / 60, _save_ckp))
 
                 model.train()
@@ -148,28 +151,41 @@ def get_lrs(optimizer):
     lrs = ['{:.6f}'.format(x) for x in lrs]
     return lrs
 
+def get_f2_score(y_pred, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=UndefinedMetricWarning)
+        return fbeta_score(labels, y_pred, beta=2, average='samples')
+
 def validate(args, model: nn.Module, valid_loader):
     model.eval()
-    total_loss, top1_corrects, top10_corrects, total_num = 0., 0, 0, 0
+    #total_loss, top1_corrects, top10_corrects, total_num = 0., 0, 0, 
+    total_num, total_loss, all_predictions, all_targets = 0, 0., [], []
 
     with torch.no_grad():
         for rgb, audio, labels in valid_loader:
+            all_targets.append(labels.numpy().copy())
+
             rgb, audio, labels = rgb.cuda(), audio.cuda(), labels.cuda()
             output = model(rgb, audio)
             #loss = criterion(output, labels)
             loss = c(output, labels).sum()
 
-            top1, top10 = accuracy(F.softmax(output, 1), labels)
-            top1_corrects += top1
-            top10_corrects += top10
+            predictions = torch.sigmoid(output)
+            all_predictions.append(predictions.cpu().numpy())
             total_num += len(rgb)
-
             total_loss += loss.item()
 
+    all_predictions = np.concatenate(all_predictions)
+    all_targets = np.concatenate(all_targets)
+
+            
     metrics = {}
-    metrics['valid_loss'] = total_loss / total_num
-    metrics['top1'] = top1_corrects / total_num
-    metrics['top10'] = top10_corrects / total_num
+    metrics['loss'] = total_loss / total_num
+
+    for threshold in [0.01, 0.10, 0.20, 0.50]:
+        metrics[f'f2_th_{threshold:.2f}'] = get_f2_score(
+            (all_predictions > threshold).astype(np.float32), all_targets
+            )
 
     #print(metrics)
     return metrics
@@ -242,17 +258,17 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
     parser.add_argument('--model_name', default='bert-base-uncased', type=str, help='learning rate')
-    parser.add_argument('--lr', default=2e-4, type=float, help='learning rate')
+    parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-6, type=float, help='min learning rate')
     parser.add_argument('--batch_size', default=512, type=int, help='batch_size')
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--iter_val', default=400, type=int, help='start epoch')
+    parser.add_argument('--iter_val', default=100, type=int, help='start epoch')
     parser.add_argument('--num_epochs', default=100, type=int, help='epoch')
     parser.add_argument('--optim', default='RAdam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.05)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=4, type=int, help='lr scheduler patience')
+    parser.add_argument('--patience', default=3, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=8, type=int, help='lr scheduler patience')
     parser.add_argument('--val', action='store_true')

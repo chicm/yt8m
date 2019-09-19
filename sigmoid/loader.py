@@ -9,15 +9,23 @@ import random
 import math
 from tqdm import tqdm
 import settings
-from utils import get_classes_1001, get_classes_1000, dequantize
+from utils import get_classes_1000, dequantize
 
 
-classes, stoi = get_classes_1001()
+classes, stoi = get_classes_1000()
 
 META_DIR = settings.META_DIR
-NUM_CLASSES = 1001
+NUM_CLASSES = 1000
 
 error_count = 0
+
+def get_label(label_list):
+    #ids = [int(x) for x in label_str.split(',')]
+    labels = np.zeros(NUM_CLASSES)
+    labels[label_list] = 1.
+    return torch.tensor(labels).float()
+
+
 # df_val = df_val[['vid', 'start_time', 'end_time', 'label', 'score']]
 class Yt8mDataset(data.Dataset):
     def __init__(self, df, test_mode=False):
@@ -50,12 +58,17 @@ class Yt8mDataset(data.Dataset):
             if self.test_mode:
                 raise ValueError('error size')
             else:
-                return torch.randn(5,1024), torch.randn(5, 128), 0
+                return torch.randn(5,1024), torch.randn(5, 128), torch.zeros(NUM_CLASSES)
             
         if self.test_mode:
             return rgb_frames, audio_frames
         else:
-            return rgb_frames, audio_frames, stoi[row.label]
+            if row.label == 'none':
+                labels = torch.zeros(NUM_CLASSES)
+            else:
+                labels = get_label([stoi[int(row.label)]])
+                #print(row.label, labels)
+            return rgb_frames, audio_frames, labels
 
     def __len__(self):
         return len(self.df)
@@ -67,7 +80,7 @@ class Yt8mDataset(data.Dataset):
         if self.test_mode:
             return rgb_tensor, audio_tensor
         else:
-            labels = torch.tensor([x[2] for x in batch])
+            labels = torch.stack([x[2] for x in batch])
             return rgb_tensor, audio_tensor, labels
 
 import random
@@ -98,13 +111,14 @@ class FrameDataset(data.Dataset):
         rgb_frames, audio_frames = self.get_features(row)
         #print(row)
 
-        return rgb_frames, audio_frames, stoi[str(row.label)]
+        return rgb_frames, audio_frames, get_label([stoi[x] for x in row.label])
 
     def __len__(self):
         return len(self.df)
 
     def _pad_sequence_tensor(self, batch):
         seq_lens = [len(x) for x in batch]
+        #print('seq_lens:', seq_lens)
         max_seq_len = max(seq_lens)
         masks = [[1]*x + [0]*(max_seq_len-x) for x in seq_lens]
         num_seq = len(batch)
@@ -120,11 +134,11 @@ class FrameDataset(data.Dataset):
         rgb_tensor, rgb_masks = self._pad_sequence_tensor([x[0] for x in batch])
         audio_tensor, audio_masks = self._pad_sequence_tensor([x[1] for x in batch])
         
-        labels = torch.tensor([x[2] for x in batch])
+        labels = torch.stack([x[2] for x in batch])
         return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels
 
 def get_frame_train_loader(batch_size=4, dev_mode=False):
-    df = pd.read_csv(osp.join(settings.META_DIR, 'train_single_1000.csv'))
+    df = pd.read_csv(osp.join(settings.META_DIR, 'train_sigmoid_1500_small.csv'), converters={'label': eval})
     df = shuffle(df, random_state=1234)
     if dev_mode:
         df = df.iloc[:200]
@@ -173,14 +187,14 @@ def test_train_loader():
     train_loader, val_loader = get_train_val_loaders(dev_mode=False)
     for x1, x2, labels in train_loader:
         print(x1.size(), x2.size())
-        print(labels)
+        print(labels, labels.sum())
         print(x1)
         break
 
 def test_frame_loader():
     frame_loader = get_frame_train_loader()
     for rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels in frame_loader:
-        print(rgb_tensor, labels)
+        print(rgb_tensor, labels, labels.sum())
         print(rgb_masks)
         print(audio_tensor.size(), rgb_tensor.size())
         break
@@ -205,5 +219,5 @@ def test_mix():
 if __name__ == '__main__':
     #test_train_loader()
     #test_test_loader()
-    #test_frame_loader()
-    test_mix()
+    test_frame_loader()
+    #test_mix()
