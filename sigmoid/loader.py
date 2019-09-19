@@ -70,6 +70,7 @@ class Yt8mDataset(data.Dataset):
             labels = torch.tensor([x[2] for x in batch])
             return rgb_tensor, audio_tensor, labels
 
+import random
 class FrameDataset(data.Dataset):
     def __init__(self, df):
         self.df = df
@@ -79,8 +80,14 @@ class FrameDataset(data.Dataset):
         vid = row.vid
         fn = osp.join(settings.TRAIN_NPY_DIR, vid+'.npy')
         x = np.load(fn, allow_pickle=True).item()
-        rgb_frames = x['rgb_frame']
-        audio_frames = x['audio_frame']
+
+        if row.nframes > 100:
+            start_frame = random.randint(0, row.nframes-100)
+        else:
+            start_frame = 0
+
+        rgb_frames = x['rgb_frame'][start_frame:start_frame+100]
+        audio_frames = x['audio_frame'][start_frame:start_frame+100]
 
         return dequantize(torch.tensor(rgb_frames).float()), dequantize(torch.tensor(audio_frames).float())
 
@@ -132,7 +139,7 @@ def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_m
     df = pd.read_csv(osp.join(settings.META_DIR, 'val.csv'))
     df = shuffle(df, random_state=1234)
     #filter
-    df = df.loc[df.score==1.0].copy()
+    #df = df.loc[df.score==1.0].copy()
     if dev_mode:
         df = df.iloc[:80]
     split_index = int(len(df) * val_percent)

@@ -35,7 +35,7 @@ def train(args):
     print('start training...')
     model, model_file = create_model(args)
     train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size)
-    train_loader = get_frame_train_loader(batch_size=args.batch_size)
+    #train_loader = get_frame_train_loader(batch_size=args.batch_size)
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
     if args.optim == 'Adam':

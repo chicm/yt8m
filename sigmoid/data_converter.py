@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import glob
 import numpy as np
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from tqdm import tqdm
 from utils import get_classes_1000
@@ -15,7 +16,7 @@ TEST_OUT_DIR = '/home/chec/data/yt8m/3/frame/test_npy'
 
 TRAIN_DATA_DIR = '/home/chec/data/yt8m/2/frame/train'
 #TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_single_npy'
-TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_sigmoid_npy_500'
+TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_sigmoid_npy_1500'
 
 classes, stoi = get_classes_1000()
 
@@ -102,8 +103,17 @@ def convert_train_data():
     train_files = glob.glob(TRAIN_DATA_DIR+'/*.tfrecord')
     print('Found {} tfrecord files'.format(len(train_files)))
 
-    for fn in tqdm(train_files[:500]):
+    tf.logging.set_verbosity(tf.logging.ERROR)
+    #tf.enable_eager_execution()
+
+    #sess = tf.InteractiveSession()
+
+    for fn in tqdm(train_files[:1500]):
         save_train_data_as_npy(fn, TRAIN_OUT_DIR)
+
+    #sess.close()
+    #tf.reset_default_graph()
+
  
 def save_train_data_as_npy(tf_filename, out_dir):
     for example in tqdm(tf.python_io.tf_record_iterator(tf_filename)):
@@ -128,6 +138,7 @@ def save_train_data_as_npy(tf_filename, out_dir):
                 audio_values.append(tf_seq_example.feature_lists.feature_list['audio']
                                 .feature[i].bytes_list.value[0])
             sess = tf.InteractiveSession()
+            #tf.logging.set_verbosity(tf.logging.ERROR)
             rgb_frame = tf.decode_raw(rgb_values, tf.uint8).eval()
             audio_frame = tf.decode_raw(audio_values, tf.uint8).eval()
             sess.close()
