@@ -124,7 +124,13 @@ class FrameDataset(data.Dataset):
         return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels
 
 def get_frame_train_loader(batch_size=4, dev_mode=False):
-    df = pd.read_csv(osp.join(settings.META_DIR, 'train_single_1000.csv'))
+    #df = pd.read_csv(osp.join(settings.META_DIR, 'train_single_1000.csv'))
+    df = pd.read_csv(osp.join(settings.META_DIR, 'train_sigmoid_1500.csv'), converters={'label': eval})
+    df['num'] = df.label.map(lambda x: len(x))
+    df = df.loc[df.num==1].copy()
+    df.label = df.label.map(lambda x: str(x[0]))
+    print(df.shape)
+    
     df = shuffle(df, random_state=1234)
     if dev_mode:
         df = df.iloc[:200]

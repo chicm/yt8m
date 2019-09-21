@@ -35,7 +35,7 @@ def train(args):
     print('start training...')
     model, model_file = create_model(args)
     train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size)
-    #train_loader = get_frame_train_loader(batch_size=args.batch_size)
+    train_loader = get_frame_train_loader(batch_size=args.batch_size)
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
     if args.optim == 'Adam':
@@ -252,7 +252,7 @@ if __name__ == '__main__':
     parser.add_argument('--optim', default='RAdam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.05)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=4, type=int, help='lr scheduler patience')
+    parser.add_argument('--patience', default=3, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=8, type=int, help='lr scheduler patience')
     parser.add_argument('--val', action='store_true')

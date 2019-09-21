@@ -106,12 +106,13 @@ class FrameDataset(data.Dataset):
 
     def __getitem__(self, index):
         global error_count
+        #print(index)
 
         row = self.df.iloc[index]
         rgb_frames, audio_frames = self.get_features(row)
         #print(row)
 
-        return rgb_frames, audio_frames, get_label([stoi[x] for x in row.label])
+        return rgb_frames, audio_frames, get_label([stoi[x] for x in row.label]), index
 
     def __len__(self):
         return len(self.df)
@@ -135,15 +136,15 @@ class FrameDataset(data.Dataset):
         audio_tensor, audio_masks = self._pad_sequence_tensor([x[1] for x in batch])
         
         labels = torch.stack([x[2] for x in batch])
-        return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels
+        return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels, torch.tensor([x[3] for x in batch])
 
 def get_frame_train_loader(batch_size=4, dev_mode=False):
-    df = pd.read_csv(osp.join(settings.META_DIR, 'train_sigmoid_1500_small.csv'), converters={'label': eval})
+    df = pd.read_csv(osp.join(settings.META_DIR, 'train_sigmoid_1500.csv'), converters={'label': eval})
     df = shuffle(df, random_state=1234)
     if dev_mode:
-        df = df.iloc[:200]
+        df = df.iloc[:10]
     train_ds = FrameDataset(df)
-    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=True)
+    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=False)
     train_loader.num = len(df)
     train_loader.seg = False
 
@@ -155,7 +156,7 @@ def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_m
     #filter
     #df = df.loc[df.score==1.0].copy()
     if dev_mode:
-        df = df.iloc[:80]
+        df = df.iloc[:10]
     split_index = int(len(df) * val_percent)
 
     df_train = df.iloc[:split_index]
@@ -163,7 +164,7 @@ def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_m
     print('train:', df_train.shape, 'val:', df_val.shape)
 
     train_ds = Yt8mDataset(df_train, test_mode=False)
-    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=True)
+    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=False)
     train_loader.num = len(train_ds)
     train_loader.seg = True
 
@@ -207,17 +208,33 @@ def test_test_loader():
         break
 
 def test_mix():
-    frame_loader = get_frame_train_loader(dev_mode=True, batch_size=16)
-    train_loader, val_loader = get_train_val_loaders(dev_mode=True, batch_size=16)
+    frame_loader = get_frame_train_loader(dev_mode=True, batch_size=4)
+    train_loader, val_loader = get_train_val_loaders(dev_mode=True, batch_size=4)
     
-    for frame_data, seg_data in zip(frame_loader, train_loader):
+    t = frame_loader.__iter__()
+    while True:
+        print(len(frame_loader))
+        for i in range(100):
+            try:
+                #if i % 2 == 0:
+                #    x = val_loader.__iter__().__next__()
+                #else:
+                x = t.__next__()
+                #print(x[-1].size(), x[-1].sum())
+                print(x[-1])
+            except StopIteration:
+                #print('catched')
+                t = frame_loader.__iter__()
+    #for frame_data, seg_data in zip(frame_loader, train_loader):
         #print('.', end='', flush=True)
-        print(seg_data[0].size())
+        #print(seg_data[0].size())
         #break
     
+    #for data in frame_loader:
+    #    print(data[-1].size(), data[-1].sum())
 
 if __name__ == '__main__':
     #test_train_loader()
     #test_test_loader()
-    test_frame_loader()
-    #test_mix()
+    #test_frame_loader()
+    test_mix()

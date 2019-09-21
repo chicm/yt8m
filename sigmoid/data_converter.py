@@ -1,6 +1,7 @@
 import os
 import os.path as osp
 import glob
+import pandas as pd
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
@@ -16,7 +17,7 @@ TEST_OUT_DIR = '/home/chec/data/yt8m/3/frame/test_npy'
 
 TRAIN_DATA_DIR = '/home/chec/data/yt8m/2/frame/train'
 #TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_single_npy'
-TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_sigmoid_npy_1500'
+TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_npy_all'
 
 classes, stoi = get_classes_1000()
 
@@ -107,15 +108,20 @@ def convert_train_data():
     #tf.enable_eager_execution()
 
     #sess = tf.InteractiveSession()
+    meta = []
 
-    for fn in tqdm(train_files[:1500]):
-        save_train_data_as_npy(fn, TRAIN_OUT_DIR)
+    for fn in tqdm(train_files):
+        save_train_data_as_npy(fn, TRAIN_OUT_DIR, meta)
 
+    df_train = pd.DataFrame(meta)
+    df_train = df_train[['vid', 'label', 'nframes']]
+    #df_train.head()
+    df_train.to_csv('train.csv', index=False)
     #sess.close()
     #tf.reset_default_graph()
 
  
-def save_train_data_as_npy(tf_filename, out_dir):
+def save_train_data_as_npy(tf_filename, out_dir, meta):
     for example in tqdm(tf.python_io.tf_record_iterator(tf_filename)):
         dataset = dict()
         tf_example = tf.train.Example.FromString(example)
@@ -152,6 +158,12 @@ def save_train_data_as_npy(tf_filename, out_dir):
             out_file = osp.join(out_dir,  vid_id + '.npy')
             assert not os.path.exists(out_file)
             np.save(out_file, np.array(dataset))
+
+            meta.append({
+                'vid': vid_id,
+                'label': filtered_labels,
+                'nframes': len(list(rgb_frame))
+            })
 
 
 import argparse
