@@ -70,6 +70,7 @@ class Yt8mDataset(data.Dataset):
             labels = torch.tensor([x[2] for x in batch])
             return rgb_tensor, audio_tensor, labels
 
+N_FRAMES = 10
 import random
 class FrameDataset(data.Dataset):
     def __init__(self, df):
@@ -81,13 +82,13 @@ class FrameDataset(data.Dataset):
         fn = osp.join(settings.TRAIN_NPY_DIR, vid+'.npy')
         x = np.load(fn, allow_pickle=True).item()
 
-        if row.nframes > 100:
-            start_frame = random.randint(0, row.nframes-100)
+        if row.nframes > N_FRAMES:
+            start_frame = random.randint(0, row.nframes-N_FRAMES)
         else:
             start_frame = 0
 
-        rgb_frames = x['rgb_frame'][start_frame:start_frame+100]
-        audio_frames = x['audio_frame'][start_frame:start_frame+100]
+        rgb_frames = x['rgb_frame'][start_frame:start_frame+N_FRAMES]
+        audio_frames = x['audio_frame'][start_frame:start_frame+N_FRAMES]
 
         return dequantize(torch.tensor(rgb_frames).float()), dequantize(torch.tensor(audio_frames).float())
 
@@ -121,25 +122,40 @@ class FrameDataset(data.Dataset):
         audio_tensor, audio_masks = self._pad_sequence_tensor([x[1] for x in batch])
         
         labels = torch.tensor([x[2] for x in batch])
-        return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels
+        #return rgb_tensor, rgb_masks, audio_tensor, audio_masks, labels
+        return rgb_tensor, audio_tensor, labels
 
-def get_frame_train_loader(batch_size=4, dev_mode=False):
+
+def get_frame_train_loader(batch_size=4, val_batch_size=4, dev_mode=False, val_percent=0.95):
     #df = pd.read_csv(osp.join(settings.META_DIR, 'train_single_1000.csv'))
-    df = pd.read_csv(osp.join(settings.META_DIR, 'train_sigmoid_1500.csv'), converters={'label': eval})
+    df = pd.read_csv(osp.join(settings.META_DIR, 'train_all.csv'), converters={'label': eval})
     df['num'] = df.label.map(lambda x: len(x))
-    df = df.loc[df.num==1].copy()
+    df = df.loc[df.num==1].sort_values(by=['vid']).copy()
     df.label = df.label.map(lambda x: str(x[0]))
     print(df.shape)
     
     df = shuffle(df, random_state=1234)
     if dev_mode:
         df = df.iloc[:200]
-    train_ds = FrameDataset(df)
+
+    split_index = int(len(df) * val_percent)
+    df_train = df.iloc[:split_index]
+    df_val = df.iloc[split_index:split_index+20000]
+    print('train:', df_train.shape, 'val:', df_val.shape)
+    print(df_val.head())
+
+    train_ds = FrameDataset(df_train)
     train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=True)
     train_loader.num = len(df)
     train_loader.seg = False
 
-    return train_loader
+    val_ds = FrameDataset(df_val)
+    val_loader = data.DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=8, collate_fn=val_ds.collate_fn, drop_last=False)
+    val_loader.num = len(df_val)
+    val_loader.seg = False
+
+
+    return train_loader, val_loader
 
 def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_mode=False):
     df = pd.read_csv(osp.join(settings.META_DIR, 'val.csv'))
@@ -199,13 +215,29 @@ def test_test_loader():
         break
 
 def test_mix():
-    frame_loader = get_frame_train_loader(dev_mode=True, batch_size=16)
-    train_loader, val_loader = get_train_val_loaders(dev_mode=True, batch_size=16)
+    frame_loader = get_frame_train_loader(dev_mode=True, batch_size=4)
+    train_loader, val_loader = get_train_val_loaders(dev_mode=True, batch_size=4)
+
+    def get_batch(loader, iterator=None):
+        if iterator is None:
+            iterator = loader.__iter__()
+        try:
+            b = iterator.__next__()
+        except StopIteration:
+            iterator = loader.__iter__()
+            b = iterator.__next__()
+        return b, iterator
     
-    for frame_data, seg_data in zip(frame_loader, train_loader):
-        #print('.', end='', flush=True)
-        print(seg_data[0].size())
-        #break
+    t1 = frame_loader.__iter__()
+    t2 = train_loader.__iter__()
+    while True:
+        #print(len(frame_loader))
+        for i in range(3):
+            x, t1 = get_batch(frame_loader, t1)
+            print('t1:', x[-1])
+        for i in range(1):
+            x, t2 = get_batch(train_loader, t2)
+            print('t2:', x[-1])
     
 
 if __name__ == '__main__':

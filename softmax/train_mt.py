@@ -34,8 +34,8 @@ def criterion(output, target):
 def train(args):
     print('start training...')
     model, model_file = create_model(args)
-    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size)
-    #train_loader, val_loader = get_frame_train_loader(batch_size=args.batch_size, val_batch_size=args.val_batch_size)
+    train_loader, val_loader = get_train_val_loaders(batch_size=args.train_batch_size, val_batch_size=args.val_batch_size)
+    frame_loader, _ = get_frame_train_loader(batch_size=args.frame_batch_size)
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
     if args.optim == 'Adam':
@@ -80,22 +80,38 @@ def train(args):
     else:
         lr_scheduler.step()
 
-    train_iter = 0
 
-    for epoch in range(args.start_epoch, args.num_epochs):
-        #train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size, val_num=args.val_num)
+    #for epoch in range(args.start_epoch, args.num_epochs):
+    def get_batch(loader, iterator=None, epoch=0, batch_idx=0):
+        ret_epoch = epoch
+        ret_batch_idx = batch_idx + 1
+        if iterator is None:
+            iterator = loader.__iter__()
+        try:
+            b = iterator.__next__()
+        except StopIteration:
+            iterator = loader.__iter__()
+            b = iterator.__next__()
+            ret_epoch += 1
+            ret_epoch = 0
+        return b, iterator, epoch, ret_batch_idx     
 
-        train_loss = 0
+    frame_epoch = args.start_epoch
+    train_epoch = 0
+    frame_iter = frame_loader.__iter__()
+    train_iter = train_loader.__iter__()
+    train_step = 0
+    frame_batch_idx = -1
+    train_batch_idx = -1
 
+
+    while frame_epoch <= args.num_epochs:
+        frame_loss = 0.
+        train_loss = 0.
         current_lr = get_lrs(optimizer)
         bg = time.time()
-        for batch_idx, data in enumerate(train_loader):
-            train_iter += 1
-            #if train_loader.seg:
-            rgb, audio, labels = [x.cuda() for x in data]
-            #else:
-            #    rgb, audio, labels = data[0].cuda(), data[2].cuda(), data[4].cuda()
-            
+
+        def train_batch(rgb, audio, labels):
             output = model(rgb, audio)
             
             loss = criterion(output, labels)
@@ -105,40 +121,56 @@ def train(args):
             optimizer.step()
             optimizer.zero_grad()
 
-            #with amp.scale_loss(loss, optimizer) as scaled_loss:
-            #    scaled_loss.backward()
+            return loss.item()
 
-            train_loss += loss.item()
-            print('\r {:4d} | {:.7f} | {:06d}/{} | {:.4f} | {:.4f} |'.format(
-                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1)), end='')
 
-            if train_iter > 0 and train_iter % args.iter_val == 0:
+        for i in range(200):
+            batch, frame_iter, frame_epoch, frame_batch_idx = get_batch(frame_loader, frame_iter, frame_epoch, frame_batch_idx)
+            rgb, audio, labels = batch[0].cuda(), batch[2].cuda(), batch[4].cuda()
+            
+            loss_val = train_batch(rgb, audio, labels)
+            frame_loss += loss_val
+            print('\r F{:4d} | {:.7f} | {:06d}/{} | {:.4f} | {:.4f} |'.format(
+                frame_epoch, float(current_lr[0]), args.frame_batch_size*(frame_batch_idx+1), frame_loader.num, loss_val, frame_loss/(i+1)), end='')
+        print('')
+        for i in range(100):
+            batch, train_iter, train_epoch, train_batch_idx = get_batch(train_loader, train_iter, train_epoch, train_batch_idx)
+            rgb, audio, labels = [x.cuda() for x in batch]
+            
+            loss_val = train_batch(rgb, audio, labels)
+            train_loss += loss_val
+            print('\r T{:4d} | {:.7f} | {:06d}/{} | {:.4f} | {:.4f} |'.format(
+                train_epoch, float(current_lr[0]), args.train_batch_size*(train_batch_idx+1), train_loader.num, loss_val, train_loss/(i+1)), end='')
+
+
+        if train_step > 0 and train_step % args.iter_val == 0:
+            if isinstance(model, DataParallel):
+                torch.save(model.module.state_dict(), model_file+'_latest')
+            else:
+                torch.save(model.state_dict(), model_file+'_latest')
+
+            val_metrics = validate(args, model, val_loader)
+            
+            _save_ckp = ''
+            if args.always_save or val_metrics[best_key] > best_f2:
+                best_f2 = val_metrics[best_key]
                 if isinstance(model, DataParallel):
-                    torch.save(model.module.state_dict(), model_file+'_latest')
+                    torch.save(model.module.state_dict(), model_file)
                 else:
-                    torch.save(model.state_dict(), model_file+'_latest')
+                    torch.save(model.state_dict(), model_file)
+                _save_ckp = '*'
+            print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
+                val_metrics['valid_loss'], val_metrics['top1'], val_metrics['top10'], best_f2,
+                (time.time() - bg) / 60, _save_ckp))
 
-                val_metrics = validate(args, model, val_loader)
-                
-                _save_ckp = ''
-                if args.always_save or val_metrics[best_key] > best_f2:
-                    best_f2 = val_metrics[best_key]
-                    if isinstance(model, DataParallel):
-                        torch.save(model.module.state_dict(), model_file)
-                    else:
-                        torch.save(model.state_dict(), model_file)
-                    _save_ckp = '*'
-                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
-                    val_metrics['valid_loss'], val_metrics['top1'], val_metrics['top10'], best_f2,
-                    (time.time() - bg) / 60, _save_ckp))
-
-                model.train()
-                if args.lrs == 'plateau':
-                    lr_scheduler.step(best_f2)
-                else:
-                    lr_scheduler.step()
-                current_lr = get_lrs(optimizer)
-
+            model.train()
+            if args.lrs == 'plateau':
+                lr_scheduler.step(best_f2)
+            else:
+                lr_scheduler.step()
+            current_lr = get_lrs(optimizer)
+    
+        train_step += 1
     #del model, optimizer, lr_scheduler
 
 def get_lrs(optimizer):
@@ -244,16 +276,17 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', default='bert-base-uncased', type=str, help='learning rate')
     parser.add_argument('--lr', default=2e-4, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-5, type=float, help='min learning rate')
-    parser.add_argument('--batch_size', default=512, type=int, help='batch_size')
+    parser.add_argument('--train_batch_size', default=512, type=int, help='batch_size')
+    parser.add_argument('--frame_batch_size', default=256, type=int, help='batch_size')
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
+    parser.add_argument('--iter_val', default=1, type=int, help='start epoch')
     parser.add_argument('--num_epochs', default=100, type=int, help='epoch')
     parser.add_argument('--optim', default='RAdam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.05)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=8, type=int, help='lr scheduler patience')
-    parser.add_argument('--factor', default=0.8, type=float, help='lr scheduler factor')
+    parser.add_argument('--patience', default=10, type=int, help='lr scheduler patience')
+    parser.add_argument('--factor', default=0.6, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=8, type=int, help='lr scheduler patience')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--dev_mode', action='store_true')
@@ -264,7 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
     parser.add_argument('--always_save',action='store_true', help='alway save')
-    parser.add_argument('--nlayers', default=3, type=int, help='layers')
+    parser.add_argument('--nlayers', default=6, type=int, help='layers')
     
     
     args = parser.parse_args()
