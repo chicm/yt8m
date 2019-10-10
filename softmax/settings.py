@@ -1,8 +1,10 @@
 import os.path as osp
 
-ROOT_DIR = '/data2/yt8m/3/frame'
+ROOT_DIR = '/mnt/chicm/yt8m/3/frame'
 META_DIR = ROOT_DIR
 VAL_NPY_DIR = osp.join(ROOT_DIR, 'val_npy')
 TEST_NPY_DIR = osp.join(ROOT_DIR, 'test_npy')
-TRAIN_NPY_DIR = '/data2/yt8m/2/frame/train_npy_all'
+TRAIN_NPY_DIR = '/mnt/chicm/yt8m/2/frame/train_npy_all'
+TRAIN_NEG_DIR = '/mnt/chicm/yt8m/2/frame/train_npy_neg_1000'
+
 MODEL_DIR = './work_dirs'

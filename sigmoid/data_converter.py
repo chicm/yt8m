@@ -9,16 +9,16 @@ from tqdm import tqdm
 from utils import get_classes_1000
 
 
-VAL_DATA_DIR = '/home/chec/data/yt8m/3/frame/validate'
-VAL_OUT_DIR = '/home/chec/data/yt8m/3/frame/val_npy'
+VAL_DATA_DIR = '/mnt/chicm/yt8m/3/frame/validate'
+VAL_OUT_DIR = '/mnt/chicm/yt8m/3/frame/val_npy'
 
-TEST_DATA_DIR = '/home/chec/data/yt8m/3/frame/test'
-TEST_OUT_DIR = '/home/chec/data/yt8m/3/frame/test_npy'
+TEST_DATA_DIR = '/mnt/chicm/yt8m/3/frame/test'
+TEST_OUT_DIR = '/mnt/chicm/yt8m/3/frame/test_npy'
 
-TRAIN_DATA_DIR = '/home/chec/data/yt8m/2/frame/train'
+TRAIN_DATA_DIR = '/mnt/chicm/yt8m/2/frame/train'
 #TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_single_npy'
-TRAIN_OUT_DIR = '/home/chec/data/yt8m/2/frame/train_npy_all'
-TRAIN_NEG_DIR = '/home/chec/data/yt8m/2/frame/train_npy_neg_1000'
+TRAIN_OUT_DIR = '/mnt/chicm/yt8m/2/frame/train_npy_all'
+TRAIN_NEG_DIR = '/mnt/chicm/yt8m/2/frame/train_npy_neg_1000'
 
 
 classes, stoi = get_classes_1000()

@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -43,8 +44,85 @@ class RNNModel(nn.Module):
 
         return self.fc(h)
 
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=100):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
+class TransformerModel(nn.Module):
+    def __init__(self, nlayers=3, hdim_rgb=1024, hdim_audio=128, nhead=8, dropout=0.5):
+        super(TransformerModel, self).__init__()
+        from torch.nn import TransformerEncoder, TransformerEncoderLayer
+        self.model_type = 'Transformer'
+        self.name = 'Transformer_gate_'+str(nlayers)
+        self.dropout = dropout
+        self.src_mask = None
+        self.pos_encoder_rgb = PositionalEncoding(hdim_rgb, dropout)
+        self.pos_encoder_audio = PositionalEncoding(hdim_audio, dropout)
+        
+        encoder_layers_rgb = TransformerEncoderLayer(hdim_rgb, nhead, hdim_rgb, dropout)
+        encoder_layers_audio = TransformerEncoderLayer(hdim_audio, nhead, hdim_audio, dropout)
+
+        self.transformer_rgb = TransformerEncoder(encoder_layers_rgb, nlayers)
+        self.transformer_audio = TransformerEncoder(encoder_layers_audio, nlayers)
+
+        self.fc = nn.Linear((hdim_audio+hdim_rgb)*5, NUM_CLASSES)
+
+        self.gate_fc = nn.Linear((hdim_audio+hdim_rgb)*5, (hdim_audio+hdim_rgb)*5)
+        
+
+        self.init_weights()
+
+    def _generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def init_weights(self):
+        initrange = 0.1
+        self.fc.bias.data.zero_()
+        self.fc.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, rgb, audio):
+        rgb = rgb.transpose(0, 1)
+        audio = audio.transpose(0, 1)
+        if self.src_mask is None or self.src_mask.size(0) != len(rgb):
+            device = rgb.device
+            mask = self._generate_square_subsequent_mask(len(rgb)).to(device)
+            self.src_mask = mask
+            #print('mask:',  mask.size())
+        rgb = self.pos_encoder_rgb(rgb)
+        audio = self.pos_encoder_audio(audio)
+
+        hrgb = self.transformer_rgb(rgb, self.src_mask)
+        haudio = self.transformer_audio(audio, self.src_mask)
+
+        #print(hrgb.size())
+        h = torch.transpose(torch.cat((hrgb, haudio), 2), 0, 1).contiguous().view(rgb.size()[1], -1)
+
+        gate = torch.sigmoid(self.gate_fc(h))
+        h = gate * h
+
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        return self.fc(h)
+
+
 def create_model(args):
-    model = RNNModel(args.nlayers)
+    #model = RNNModel(args.nlayers)
+    model = TransformerModel(args.nlayers)
     model_file = os.path.join(settings.MODEL_DIR, model.name, args.ckp_name)
 
     parent_dir = os.path.dirname(model_file)
@@ -69,5 +147,14 @@ def test_forward():
     out = model(rgb, audio).squeeze()
     print(out.size())
 
+def test_transformer():
+    model = TransformerModel().cuda()
+    #x = torch.tensor([[1,2,3,4,5]]*100).cuda().transpose(0,1)
+    rgb = torch.randn(4, 5, 1024).cuda()
+    audio = torch.randn(4, 5, 128).cuda()
+    out = model(rgb, audio)
+    print(out.size())
+
 if __name__ == '__main__':
-    test_forward()
+    #test_forward()
+    test_transformer()

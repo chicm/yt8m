@@ -19,7 +19,7 @@ NUM_CLASSES = 1001
 
 error_count = 0
 # df_val = df_val[['vid', 'start_time', 'end_time', 'label', 'score']]
-class Yt8mDataset(data.Dataset):
+class MixDataset(data.Dataset):
     def __init__(self, df, test_mode=False):
         self.df = df
         self.test_mode = test_mode
@@ -29,11 +29,27 @@ class Yt8mDataset(data.Dataset):
         vid = row.vid
         if self.test_mode:
             fn = osp.join(settings.TEST_NPY_DIR, vid+'.npy')
-        else:
+        elif row.flag == 'val':
             fn = osp.join(settings.VAL_NPY_DIR, vid+'.npy')
+        elif row.flag == 'train':
+            fn = osp.join(settings.TRAIN_NPY_DIR, vid+'.npy')
+        elif row.flag == 'neg':
+            fn = osp.join(settings.TRAIN_NEG_DIR, vid+'.npy')
+        else:
+            raise ValueError('img_dir')
         x = np.load(fn, allow_pickle=True).item()
-        rgb_frames = x['rgb_frame'][row.start_time: row.start_time+5]
-        audio_frames = x['audio_frame'][row.start_time: row.start_time+5]
+
+        if self.test_mode or row.flag == 'val':
+            start_frame = row.start_time
+        else:
+            if row.nframes >= 5:
+                start_frame = random.randint(0, row.nframes-5)
+            else:
+                start_frame = 0
+
+
+        rgb_frames = x['rgb_frame'][start_frame: start_frame+5]
+        audio_frames = x['audio_frame'][start_frame: start_frame+5]
 
         return dequantize(torch.tensor(rgb_frames).float()), dequantize(torch.tensor(audio_frames).float())
 
@@ -126,57 +142,44 @@ class FrameDataset(data.Dataset):
         return rgb_tensor, audio_tensor, labels
 
 
-def get_frame_train_loader(batch_size=4, val_batch_size=4, dev_mode=False, val_percent=0.95):
-    #df = pd.read_csv(osp.join(settings.META_DIR, 'train_single_1000.csv'))
-    df = pd.read_csv(osp.join(settings.META_DIR, 'train_all.csv'), converters={'label': eval})
-    df['num'] = df.label.map(lambda x: len(x))
-    df = df.loc[df.num==1].sort_values(by=['vid']).copy()
-    df.label = df.label.map(lambda x: str(x[0]))
-    print(df.shape)
+def prepare_train_df(val_split=0.8):
+    df_train = pd.read_csv(osp.join(settings.META_DIR, 'train_all.csv'), converters={'label': eval})
+    df_train.label = df_train.label.map(lambda x: str(x[0]))
+    df_train['flag'] = 'train'
+    df_train['start_time'] = 0
+    df_train['end_time'] = 0
+    df_train['score'] = 0
+
+    df_neg = pd.read_csv(osp.join(settings.META_DIR, 'train_neg.csv'))
+    df_neg['flag'] = 'neg'
+    df_neg['start_time'] = 0
+    df_neg['end_time'] = 0
+    df_neg['score'] = 0
     
-    df = shuffle(df, random_state=1234)
-    if dev_mode:
-        df = df.iloc[:200]
+    df_val = pd.read_csv(osp.join(settings.META_DIR, 'val.csv'))
+    df_val['nframes'] = 0
+    df_val['flag'] = 'val'
+    split_index = int(len(df_val) * val_split)
 
-    split_index = int(len(df) * val_percent)
-    df_train = df.iloc[:split_index]
-    df_val = df.iloc[split_index:split_index+20000]
-    print('train:', df_train.shape, 'val:', df_val.shape)
-    print(df_val.head())
+    df_all = shuffle(pd.concat([df_train, df_neg] + [df_val.iloc[:split_index].copy()]*5, sort=False))
 
-    train_ds = FrameDataset(df_train)
-    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=True)
-    train_loader.num = len(df)
-    train_loader.seg = False
-
-    val_ds = FrameDataset(df_val)
-    val_loader = data.DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=8, collate_fn=val_ds.collate_fn, drop_last=False)
-    val_loader.num = len(df_val)
-    val_loader.seg = False
-
-
-    return train_loader, val_loader
+    return df_all, df_val.iloc[split_index:].copy()
 
 def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_mode=False):
-    df = pd.read_csv(osp.join(settings.META_DIR, 'val.csv'))
-    df = shuffle(df, random_state=1234)
-    #filter
-    #df = df.loc[df.score==1.0].copy()
+    df_train, df_val = prepare_train_df()
+    #df_val = df_val.loc[df_val.label!='none'].copy()
     if dev_mode:
-        df = df.iloc[:80]
-    split_index = int(len(df) * val_percent)
-
-    df_train = df.iloc[:split_index]
-    df_val = df.iloc[split_index:]
+        df_train = df_train.iloc[:100]
+        df_val = df_val.iloc[:100]
     print('train:', df_train.shape, 'val:', df_val.shape)
 
-    train_ds = Yt8mDataset(df_train, test_mode=False)
-    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=train_ds.collate_fn, drop_last=True)
+    train_ds = MixDataset(df_train, test_mode=False)
+    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=24, collate_fn=train_ds.collate_fn, drop_last=True)
     train_loader.num = len(train_ds)
     train_loader.seg = True
 
-    val_ds = Yt8mDataset(df_val, test_mode=False)
-    val_loader = data.DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=8, collate_fn=val_ds.collate_fn, drop_last=False)
+    val_ds = MixDataset(df_val, test_mode=False)
+    val_loader = data.DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=24, collate_fn=val_ds.collate_fn, drop_last=False)
     val_loader.num = len(val_ds)
     
     return train_loader, val_loader
@@ -185,7 +188,7 @@ def get_test_loader(batch_size=4, dev_mode=False):
     df = pd.read_csv(osp.join(settings.META_DIR, 'test_ids.csv'))
     if dev_mode:
         df = df.iloc[:100]
-    test_ds = Yt8mDataset(df, test_mode=True)
+    test_ds = MixDataset(df, test_mode=True)
     test_loader = data.DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=24, collate_fn=test_ds.collate_fn, drop_last=False)
     test_loader.num = len(test_ds)
 
@@ -241,7 +244,7 @@ def test_mix():
     
 
 if __name__ == '__main__':
-    #test_train_loader()
+    test_train_loader()
     #test_test_loader()
     #test_frame_loader()
-    test_mix()
+    #test_mix()

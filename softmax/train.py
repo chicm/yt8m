@@ -11,7 +11,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import settings
-from loader import get_train_val_loaders, get_test_loader, get_frame_train_loader
+#from loader import get_train_val_loaders, get_test_loader, get_frame_train_loader
+from mix_loader import get_train_val_loaders, get_test_loader
+
 from models import create_model
 from torch.nn import DataParallel
 from tqdm import tqdm
@@ -242,18 +244,18 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
     parser.add_argument('--model_name', default='bert-base-uncased', type=str, help='learning rate')
-    parser.add_argument('--lr', default=2e-4, type=float, help='learning rate')
+    parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-5, type=float, help='min learning rate')
-    parser.add_argument('--batch_size', default=512, type=int, help='batch_size')
-    parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=4096, type=int, help='batch_size')
+    parser.add_argument('--val_batch_size', default=4096, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
+    parser.add_argument('--iter_val', default=100, type=int, help='start epoch')
     parser.add_argument('--num_epochs', default=100, type=int, help='epoch')
     parser.add_argument('--optim', default='RAdam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.05)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=8, type=int, help='lr scheduler patience')
-    parser.add_argument('--factor', default=0.8, type=float, help='lr scheduler factor')
+    parser.add_argument('--patience', default=3, type=int, help='lr scheduler patience')
+    parser.add_argument('--factor', default=0.6, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=8, type=int, help='lr scheduler patience')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--dev_mode', action='store_true')
