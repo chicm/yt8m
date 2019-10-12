@@ -27,6 +27,9 @@ class RNNModel(nn.Module):
     def forward(self, rgb, audio):
         # out: (seq_len, batch, hidden_size * num_directions)
         # hidden: (num_layers * num_directions, batch, hidden_size)
+        self.gru_rgb.flatten_parameters()
+        self.gru_audio.flatten_parameters()
+
         _, hrgb = self.gru_rgb(rgb)
         #print('hrgb:', hrgb.size())
         #print('_:', type(_), _.size())
@@ -110,7 +113,7 @@ class TransformerModel(nn.Module):
         hrgb = self.transformer_rgb(rgb, self.src_mask)
         haudio = self.transformer_audio(audio, self.src_mask)
 
-        #print(hrgb.size())
+        #print(hrgb.size(), haudio.size())
         h = torch.transpose(torch.cat((hrgb, haudio), 2), 0, 1).contiguous().view(rgb.size()[1], -1)
 
         gate = torch.sigmoid(self.gate_fc(h))
@@ -121,8 +124,8 @@ class TransformerModel(nn.Module):
 
 
 def create_model(args):
-    #model = RNNModel(args.nlayers)
-    model = TransformerModel(args.nlayers)
+    model = RNNModel(args.nlayers)
+    #model = TransformerModel(args.nlayers)
     model_file = os.path.join(settings.MODEL_DIR, model.name, args.ckp_name)
 
     parent_dir = os.path.dirname(model_file)

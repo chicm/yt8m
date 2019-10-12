@@ -70,7 +70,7 @@ class Yt8mDataset(data.Dataset):
             labels = torch.tensor([x[2] for x in batch])
             return rgb_tensor, audio_tensor, labels
 
-N_FRAMES = 5
+N_FRAMES = 10
 import random
 class FrameDataset(data.Dataset):
     def __init__(self, df):
@@ -168,6 +168,8 @@ def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_m
 
     df_train = df.iloc[:split_index]
     df_val = df.iloc[split_index:]
+    df_val = df_val.loc[df_val.label!='none'].copy()
+
     print('train:', df_train.shape, 'val:', df_val.shape)
 
     train_ds = Yt8mDataset(df_train, test_mode=False)

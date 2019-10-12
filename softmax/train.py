@@ -11,8 +11,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import settings
-#from loader import get_train_val_loaders, get_test_loader, get_frame_train_loader
-from mix_loader import get_train_val_loaders, get_test_loader
+from loader import get_train_val_loaders, get_test_loader, get_frame_train_loader
+#from mix_loader import get_train_val_loaders, get_test_loader
 
 from models import create_model
 from torch.nn import DataParallel

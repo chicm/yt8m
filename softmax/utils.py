@@ -14,7 +14,7 @@ def get_classes_1000():
     stoi = { c[i]: i for i in range(len(c)) }
     return c, stoi
 
-def accuracy(output, label, topk=(1,10)):
+def accuracy(output, label, topk=(10,20)):
     maxk = max(topk)
 
     _, pred = output.topk(maxk, 1, True, True)

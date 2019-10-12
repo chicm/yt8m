@@ -167,7 +167,7 @@ def prepare_train_df(val_split=0.8):
 
 def get_train_val_loaders(batch_size=4, val_batch_size=4, val_percent=0.9, dev_mode=False):
     df_train, df_val = prepare_train_df()
-    #df_val = df_val.loc[df_val.label!='none'].copy()
+    df_val = df_val.loc[df_val.label!='none'].copy()
     if dev_mode:
         df_train = df_train.iloc[:100]
         df_val = df_val.iloc[:100]
